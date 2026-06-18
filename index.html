@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>鳳凰 · 沈浸式捲動敘事</title>
+<style>
+  :root{ --ink:#0a0612; --gold:#ffd9a0; --fire:#ff8a3a; }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ color:#2c2440; font-family:"Noto Serif TC",ui-serif,Georgia,serif; }
+  /* 淺粉彩後備底色（WebGL 漸層天空載入前的襯底，Noomo 風）*/
+  body{ background:linear-gradient(160deg, #d8cdf2 0%, #c9bdf0 60%, #d4c4ee 100%); }
+  /* 固定全螢幕畫布：世界在這裡，捲動只是「驅動」它 */
+  #scene{ position:fixed; inset:0; z-index:0; }
+  /* 高高的捲動容器，本身透明，只負責提供捲動距離 */
+  #scroll{ position:relative; z-index:1; }
+  .chapter{
+    height:100vh; display:flex; flex-direction:column; justify-content:center;
+    padding:0 8vw; pointer-events:none;
+  }
+  .chapter:nth-child(even){ align-items:flex-end; text-align:right; }
+  .chapter h2{
+    font-size:clamp(2.2rem,7vw,5.5rem); line-height:1.05; letter-spacing:.04em;
+    color:#241a3a; text-shadow:0 2px 30px rgba(255,255,255,.6); opacity:0; transform:translateY(40px);
+    transition:opacity .9s ease, transform .9s ease;
+  }
+  .chapter p{
+    margin-top:1.2rem; max-width:30ch; font-size:clamp(.95rem,1.6vw,1.15rem);
+    color:#4a4163; font-family:ui-sans-serif,system-ui,sans-serif; line-height:1.8;
+    opacity:0; transform:translateY(30px); transition:opacity 1s ease .15s, transform 1s ease .15s;
+  }
+  .chapter.in h2,.chapter.in p{ opacity:1; transform:none; }
+  .badge{ font-family:ui-sans-serif,system-ui,sans-serif; font-size:.75rem; letter-spacing:.5em;
+    color:#7a5fa6; opacity:.85; margin-bottom:1rem; }
+  /* 進度條 */
+  #bar{ position:fixed; left:0; top:0; height:3px; width:0;
+    background:linear-gradient(90deg,var(--fire),var(--gold)); z-index:5; box-shadow:0 0 12px var(--fire); }
+  #hint{ position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:5;
+    font-family:ui-sans-serif,system-ui,sans-serif; font-size:.7rem; letter-spacing:.3em; color:#2c244099;
+    animation:fade 2.5s ease-in-out infinite; }
+  @keyframes fade{ 0%,100%{opacity:.25} 50%{opacity:.9} }
+  #credit{ position:fixed; right:14px; bottom:12px; z-index:5; font-family:ui-sans-serif,system-ui,sans-serif;
+    font-size:.62rem; letter-spacing:.04em; color:#2c244066; text-decoration:none; }
+  #credit:hover{ color:#2c2440cc; }
+  /* 觸碰漣漪：點觸處擴散的光環（任何背景都看得到的觸覺回饋）*/
+  .ripple{ position:fixed; z-index:4; width:20px; height:20px; margin:-10px 0 0 -10px;
+    border:2px solid rgba(122,95,166,.75); border-radius:50%; pointer-events:none;
+    animation:ripple .7s cubic-bezier(.2,.7,.3,1) forwards; }
+  @keyframes ripple{ from{ transform:scale(.3); opacity:.9; } to{ transform:scale(12); opacity:0; } }
+  /* Lenis 建議樣式 */
+  html.lenis,html.lenis body{ height:auto; }
+  .lenis.lenis-smooth{ scroll-behavior:auto !important; }
+  .lenis.lenis-stopped{ overflow:hidden; }
+</style>
+</head>
+<body>
+  <div id="bar"></div>
+  <canvas id="scene"></canvas>
+  <div id="hint">SCROLL ↓ 驅動鳳凰</div>
+  <!-- CC 署名：模型必須標註作者 -->
+  <a id="credit" href="https://sketchfab.com/3d-models/phoenix-bird-844ba0cf144a413ea92c779f18912042" target="_blank" rel="noopener">
+    模型 “鳳凰 Phoenix Bird” by NORBERTO-3D · CC-BY</a>
+
+  <div id="scroll">
+    <section class="chapter in">
+      <div class="badge">序 · 灰燼</div>
+      <h2>從灰燼中<br>睜開眼</h2>
+      <p>每一次捲動，都讓牠多飛一寸。你不是觀眾，你是讓牠重生的那陣風。</p>
+    </section>
+    <section class="chapter">
+      <div class="badge">壹 · 振翅</div>
+      <h2>羽翼張開<br>火光成形</h2>
+      <p>低多邊形的身體、即時拍動的翅膀，全部由程式即時運算——沒有影片，只有當下。</p>
+    </section>
+    <section class="chapter">
+      <div class="badge">貳 · 穿越</div>
+      <h2>沿著看不見的<br>軌跡盤旋</h2>
+      <p>一條隱形曲線決定牠的航道，你的捲動進度就是牠在曲線上的座標。</p>
+    </section>
+    <section class="chapter">
+      <div class="badge">參 · 燎原</div>
+      <h2>尾羽拖出<br>一道星河</h2>
+      <p>餘燼粒子跟著牠的軌跡流動，把整個畫面變成你親手點燃的世界。</p>
+    </section>
+    <section class="chapter">
+      <div class="badge">終 · 涅槃</div>
+      <h2>牠，<br>就是你的作品</h2>
+      <p>把這裡換成你的視覺設計：每一章是一件作品，鳳凰帶觀者穿過你的宇宙。</p>
+    </section>
+  </div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+  "lenis": "https://unpkg.com/lenis@1.1.13/dist/lenis.mjs"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import Lenis from 'lenis';
+
+// ── 背景：隨捲動變色的柔粉彩漸層（Noomo 風）。色階定義在下方 SKY_STOPS ──
+
+// ── 真實模型設定 ──
+// 依序嘗試這些檔案，第一個載到的就用；全部失敗則退回程式鳳凰。
+// 想用動畫鳳凰：下載後命名 phoenix.glb 丟進本資料夾即可（會自動優先載入並播放拍翅動畫）。
+const MODEL_CANDIDATES = ['./phoenix.glb', './eagle.glb'];
+const TARGET_SIZE = 8;                 // 自動把模型縮放到這個尺寸（最長邊）
+const MODEL_ROT_Y = -Math.PI/2;        // 讓模型頭朝飛行方向（依模型而定：0 / ±PI/2 / PI）
+const GLASSIFY    = false;             // true=把模型材質換成玻璃；false=保留模型原始材質（鳳凰自帶虹彩發光貼圖）
+
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0xe2ddf2, 0.0028);  // 輕透粉彩霧，配合柔色漸層天空
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 300);
+
+// ---- 環境貼圖：先用中性環境暫代，HDRI 載入後覆蓋 ----
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// ---- 天空穹頂：隨捲動變色的柔粉彩漸層（比照 Noomo storytelling 的 pixels & glass 極簡風）----
+// 每個色階 = {上方色, 下方色}（sRGB 0~1），依捲動進度交叉淡化
+const SKY_STOPS = [
+  { top:[0.80,0.73,0.95], bot:[0.69,0.60,0.91] },  // 薰衣草（序·甦醒）
+  { top:[0.99,0.83,0.72], bot:[0.98,0.69,0.70] },  // 蜜桃（振翅）
+  { top:[0.75,0.92,0.84], bot:[0.64,0.85,0.85] },  // 薄荷（穿越）
+  { top:[0.74,0.85,0.99], bot:[0.82,0.76,0.97] },  // 天藍薰衣草（涅槃）
+];
+const skyUni = {
+  aTop:{value:new THREE.Vector3()}, aBot:{value:new THREE.Vector3()},
+  bTop:{value:new THREE.Vector3()}, bBot:{value:new THREE.Vector3()}, mixf:{value:0}
+};
+const skyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(250, 48, 32),
+  new THREE.ShaderMaterial({
+    side:THREE.BackSide, depthWrite:false, fog:false, toneMapped:false, uniforms:skyUni,
+    vertexShader:`varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader:`
+      uniform vec3 aTop,aBot,bTop,bBot; uniform float mixf;
+      varying vec3 vDir;
+      void main(){
+        float h = clamp(normalize(vDir).y*0.6 + 0.5, 0.0, 1.0);   // 由下而上的漸層
+        vec3 a = mix(aBot, aTop, h);
+        vec3 b = mix(bBot, bTop, h);
+        vec3 c = mix(a, b, mixf);
+        gl_FragColor = vec4( pow(c, vec3(2.2)), 1.0 );   // 轉線性，讓 renderer 的 sRGB 編碼後回到正確飽和度
+      }`
+  })
+);
+skyDome.renderOrder = -1;
+scene.add(skyDome);
+const setSkyVec = (u, c) => u.value.set(c[0], c[1], c[2]);
+
+// ---- 燈光：白主光 + 冷暖兩色補光，讓玻璃邊緣折出虹彩 ----
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const key  = new THREE.PointLight(0xffffff, 40, 90); scene.add(key);
+const warm = new THREE.PointLight(0xff7a2a, 60, 30); scene.add(warm);  // 隨鳳凰移動，打出暖色高光
+const cool = new THREE.PointLight(0x4aa0ff, 60, 30); scene.add(cool);  // 隨鳳凰移動，打出冷色高光
+const rim  = new THREE.DirectionalLight(0xffffff, 1.2); rim.position.set(-1,2,1); scene.add(rim);
+
+// ====== 程式生成鳳凰 ======
+const phoenix = new THREE.Group();   // 沿曲線飛行的載具（模型/程式幾何都掛在這）
+scene.add(phoenix);
+const proc = new THREE.Group();      // 程式幾何（載入真實模型後會隱藏）
+phoenix.add(proc);
+let usingModel = false, mixer = null;
+
+// 虹彩玻璃（Noomo 招牌 glass shader 質感）
+const fireMat = new THREE.MeshPhysicalMaterial({
+  color:0xffffff, metalness:0, roughness:0.05, envMapIntensity:1.8,
+  transmission:1.0, thickness:0.6, ior:1.45, attenuationColor:0xff9a5a, attenuationDistance:9,
+  iridescence:1.0, iridescenceIOR:1.32, iridescenceThicknessRange:[100,560],
+  clearcoat:1.0, clearcoatRoughness:0.06, flatShading:true });
+// 暖琥珀玻璃（外層羽片，帶一點鳳凰的火色）
+const goldMat = new THREE.MeshPhysicalMaterial({
+  color:0xfff0d8, metalness:0, roughness:0.08, envMapIntensity:1.8,
+  transmission:0.96, thickness:0.5, ior:1.5, attenuationColor:0xffc987, attenuationDistance:7,
+  iridescence:0.8, iridescenceIOR:1.28, iridescenceThicknessRange:[120,480],
+  clearcoat:1.0, clearcoatRoughness:0.08, flatShading:true });
+
+// 身體：拉長的八面體
+const body = new THREE.Mesh(new THREE.OctahedronGeometry(0.9,0), fireMat);
+body.scale.set(1, 0.7, 2.4); proc.add(body);
+// 頭
+const head = new THREE.Mesh(new THREE.OctahedronGeometry(0.5,0), goldMat);
+head.position.set(0,0.25,2.2); head.scale.set(1,1,1.3); proc.add(head);
+// 喙
+const beak = new THREE.Mesh(new THREE.ConeGeometry(0.16,0.7,4), goldMat);
+beak.rotation.x = Math.PI/2; beak.position.set(0,0.2,2.9); proc.add(beak);
+// 頭冠（三根火焰冠羽）
+for(let i=-1;i<=1;i++){
+  const c = new THREE.Mesh(new THREE.ConeGeometry(0.1,0.9,4), fireMat);
+  c.position.set(i*0.18,0.7,2.0); c.rotation.x = -0.5; c.rotation.z = i*0.3; proc.add(c);
+}
+
+// 翅膀：每邊用幾片羽片組成，整個 wing group 從根部拍動
+function makeWing(side){ // side = -1 左, +1 右
+  const wing = new THREE.Group();
+  for(let i=0;i<5;i++){
+    const len = 2.6 - i*0.32;
+    const feather = new THREE.Mesh(new THREE.ConeGeometry(0.28, len, 4), i<2?fireMat:goldMat);
+    feather.rotation.z = side*Math.PI/2;        // 平躺向外
+    feather.rotation.y = side*(-0.25 - i*0.13); // 後掠
+    feather.position.set(side*(0.9+len*0.45), 0, 0.4 - i*0.45);
+    wing.add(feather);
+  }
+  wing.position.set(side*0.4,0.1,0.2);
+  proc.add(wing);
+  return wing;
+}
+const wingL = makeWing(-1), wingR = makeWing(1);
+
+// 尾羽：長條羽片，會像火舌一樣波動
+const tail = [];
+for(let i=0;i<7;i++){
+  const len = 4.5 - Math.abs(i-3)*0.4;
+  const t = new THREE.Mesh(new THREE.ConeGeometry(0.16, len, 4), i%2?fireMat:goldMat);
+  t.rotation.x = -Math.PI/2;
+  const spread = (i-3)*0.28;
+  t.position.set(spread, 0, -1.6 - len*0.45);
+  t.userData = { base:t.position.clone(), phase:i*0.6, spread };
+  proc.add(t); tail.push(t);
+}
+
+// ====== 依序嘗試載入真實 .glb 模型（全部失敗就用程式鳳凰）======
+const loader = new GLTFLoader();
+function loadModel(list){
+  if(!list.length){ console.log('[phoenix] 無可用模型 → 使用程式生成鳳凰'); return; }
+  const url = list[0];
+  loader.load(url, gltf => {
+    const model = gltf.scene;
+    // 自動置中 + 等比縮放到 TARGET_SIZE（不必手調 scale）
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const s = TARGET_SIZE / (Math.max(size.x,size.y,size.z) || 1);
+    model.position.sub(center);                 // 幾何中心移到原點
+    const holder = new THREE.Group();           // 用容器處理縮放/旋轉，避免偏移
+    holder.add(model);
+    holder.scale.setScalar(s);
+    holder.rotation.y = MODEL_ROT_Y;
+    if(GLASSIFY) model.traverse(o => { if(o.isMesh) o.material = fireMat; });  // 換成玻璃材質
+    else model.traverse(o => { if(o.isMesh && o.material && 'envMapIntensity' in o.material){ o.material.envMapIntensity = 0.45; }}); // 降低環境光照亮，讓鳳凰自身虹彩主導
+    phoenix.add(holder);
+    proc.visible = false;
+    usingModel = true;
+    if(gltf.animations && gltf.animations.length){
+      mixer = new THREE.AnimationMixer(model);
+      mixer.clipAction(gltf.animations[0]).play();   // 有動畫就播第一段（拍翅）
+      console.log('[phoenix] 已載入', url, '（含動畫）');
+    } else {
+      console.log('[phoenix] 已載入', url, '（靜態）');
+    }
+  }, undefined, () => { console.log('[phoenix] 載入失敗', url, '→ 試下一個'); loadModel(list.slice(1)); });
+}
+loadModel(MODEL_CANDIDATES);
+
+// ====== 飛行曲線（隱形軌道）======
+const curve = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(  6,  -2, -10),
+  new THREE.Vector3( -8,   3, -22),
+  new THREE.Vector3(  7,   6, -38),
+  new THREE.Vector3( -6,  -1, -54),
+  new THREE.Vector3(  4,   4, -70),
+  new THREE.Vector3(  0,   8, -88),
+], false, 'catmullrom', 0.5);
+
+// （星塵已移除：改用真實天空 HDRI 當背景）
+
+// ====== 體積雲層：持續朝鏡頭流動，營造「一直往前穿越」的 3D 前進感 ======
+function makeCloudTexture(){
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64,64,0, 64,64,64);
+  grd.addColorStop(0.0, 'rgba(255,255,255,0.95)');
+  grd.addColorStop(0.45,'rgba(240,244,246,0.45)');
+  grd.addColorStop(1.0, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0,0,128,128);
+  return new THREE.CanvasTexture(c);
+}
+const cloudTex = makeCloudTexture();
+const CLOUDS = 60;
+const clouds = [];
+for(let i=0;i<CLOUDS;i++){
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({
+    map:cloudTex, transparent:true, opacity:0.05+Math.random()*0.12,
+    depthWrite:false, fog:true }));
+  const sc = 10 + Math.random()*22;
+  s.scale.set(sc, sc*0.66, 1);
+  s.position.set((Math.random()-.5)*55, (Math.random()-.5)*30, -Math.random()*130);
+  scene.add(s); clouds.push(s);
+}
+const CLOUD_SPEED = 0.32;   // 雲流速度（越大越急）
+
+// ====== 觸碰火花迸發系統：點觸時從鳳凰迸出一圈發光火花 ======
+function makeSparkTex(){
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(32,32,0, 32,32,32);
+  grd.addColorStop(0.0,'rgba(255,255,255,1)');
+  grd.addColorStop(0.30,'rgba(255,238,205,0.75)');
+  grd.addColorStop(1.0,'rgba(255,200,120,0)');
+  g.fillStyle = grd; g.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+}
+const SPK = 160;
+const SPK_PALETTE = [[1,0.45,0.12],[1,0.22,0.55],[1,0.80,0.25],[0.55,0.82,1]];  // 橘/洋紅/金/天藍，在淺底也鮮明
+const spkGeo = new THREE.BufferGeometry();
+const spkPos = new Float32Array(SPK*3);
+const spkCol = new Float32Array(SPK*3);
+const spkVel = new Float32Array(SPK*3);
+spkGeo.setAttribute('position', new THREE.BufferAttribute(spkPos,3));
+spkGeo.setAttribute('color',    new THREE.BufferAttribute(spkCol,3));
+const sparks = new THREE.Points(spkGeo, new THREE.PointsMaterial({
+  size:0.7, map:makeSparkTex(), vertexColors:true, transparent:true, opacity:0,
+  blending:THREE.NormalBlending, depthWrite:false, fog:false }));  // 一般混色才在淺粉彩底可見
+scene.add(sparks);
+let spkHead = 0, sparkTimer = 0;
+function burstAt(p){
+  sparkTimer = 1;
+  for(let k=0;k<48;k++){
+    const i = spkHead; spkHead = (spkHead+1)%SPK;
+    spkPos[i*3]=p.x+(Math.random()-.5)*0.6; spkPos[i*3+1]=p.y+(Math.random()-.5)*0.6; spkPos[i*3+2]=p.z+(Math.random()-.5)*0.6;
+    const th=Math.random()*Math.PI*2, ph=Math.acos(Math.random()*2-1), sp=0.15+Math.random()*0.5;
+    spkVel[i*3]=Math.sin(ph)*Math.cos(th)*sp; spkVel[i*3+1]=Math.sin(ph)*Math.sin(th)*sp; spkVel[i*3+2]=Math.cos(ph)*sp;
+    const c = SPK_PALETTE[(Math.random()*SPK_PALETTE.length)|0];
+    spkCol[i*3]=c[0]; spkCol[i*3+1]=c[1]; spkCol[i*3+2]=c[2];
+  }
+  spkGeo.attributes.color.needsUpdate = true;
+}
+let burstReq = false;
+
+// ====== 翻滾：在這些進度點，鳳凰穿越雲層時打滾 360° ======
+const ROLL_POINTS = [0.26, 0.52, 0.78];
+const ROLL_WIDTH  = 0.05;   // 每次翻滾佔多少進度（越小越快）
+function rollAngle(t){
+  let a = 0;
+  for(const p of ROLL_POINTS){
+    const d = (t - (p - ROLL_WIDTH)) / (ROLL_WIDTH * 2);  // 進入翻滾區 0→1
+    if(d > 0 && d < 1) a += Math.PI * 2 * (d - Math.sin(2*Math.PI*d)/(2*Math.PI)); // 平滑加速的整圈翻滾
+  }
+  return a;
+}
+
+// ====== 俯衝掠過：在這些進度點，鳳凰朝鏡頭暴衝、掠過後從畫面消失再回到前方 ======
+const FLYBY_POINTS = [0.18, 0.44, 0.70];
+function flybyAmount(t){
+  let a = 0;
+  for(const p of FLYBY_POINTS){
+    const d = (t - (p - 0.06)) / 0.12;                 // 進入掠過區 0→1
+    if(d > 0 && d < 1) a += Math.sin(d*Math.PI) * 26;  // 朝鏡頭暴衝 +26 後退回（會掠過鏡頭）
+  }
+  return a;
+}
+
+// ====== 水波後處理：觸碰／滑動處發出同心波紋，扭曲整個畫面（像水面蕩漾）======
+const MAX_RIP = 10;
+const ripCenter = []; for(let i=0;i<MAX_RIP;i++) ripCenter.push(new THREE.Vector2(0.5,0.5));
+const ripAge = new Float32Array(MAX_RIP).fill(-1);   // <0 = 未啟用
+const ripStr = new Float32Array(MAX_RIP).fill(0);    // 強度
+const waterPass = new ShaderPass({
+  uniforms: {
+    tDiffuse:  { value:null },
+    uCenter:   { value:ripCenter },
+    uAge:      { value:ripAge },
+    uStr:      { value:ripStr },
+    uAspect:   { value:innerWidth/innerHeight },
+  },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform vec2  uCenter[${MAX_RIP}];
+    uniform float uAge[${MAX_RIP}];
+    uniform float uStr[${MAX_RIP}];
+    uniform float uAspect;
+    varying vec2 vUv;
+    void main(){
+      vec2 disp = vec2(0.0);
+      float hl = 0.0;
+      for(int i=0;i<${MAX_RIP};i++){
+        if(uAge[i] < 0.0) continue;
+        vec2 d = vUv - uCenter[i];
+        d.x *= uAspect;                       // 校正長寬比 → 圓形波
+        float dist = length(d);
+        float radius = uAge[i] * 0.42;        // 波紋擴張速度
+        float diff = dist - radius;
+        // 局部正弦波環 + 隨距離與時間衰減
+        float wave = sin(diff * 46.0) * exp(-abs(diff)*16.0) * exp(-uAge[i]*1.6);
+        disp += normalize(d + 1e-5) * wave * 0.024 * uStr[i];   // UV 扭曲
+        hl   += wave * uStr[i];                                  // 波峰高光
+      }
+      disp.x /= uAspect;
+      vec4 col = texture2D(tDiffuse, vUv + disp);
+      col.rgb += hl * 0.16;                   // 讓平滑天空也看得到一圈圈水光
+      gl_FragColor = col;
+    }`
+});
+waterPass.material.toneMapped = false;
+let ripHead = 0, lastRip = 0;
+function spawnRipple(cx, cy, strength){
+  const i = ripHead; ripHead = (ripHead+1)%MAX_RIP;
+  ripCenter[i].set(cx/innerWidth, 1.0 - cy/innerHeight);   // 螢幕座標 → uv（翻 y）
+  ripAge[i] = 0; ripStr[i] = strength;
+}
+
+// ====== 後處理 Bloom（火焰發光暈）======
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(waterPass);             // 水波扭曲（在 Bloom 之前）
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(innerWidth, innerHeight),
+  0.4,   // strength 強度
+  0.7,   // radius 暈開半徑
+  0.8    // threshold 多亮才發光（提高：讓明亮天空不發光、只有鳳凰發光）
+);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ====== Lenis 平滑捲動 ======
+const lenis = new Lenis({ smoothWheel:true, lerp:0.08 });
+window.__L = lenis;   // 除錯用：可在 console 以 __L.scrollTo(px,{immediate:true}) 精準跳位
+let target=0, prog=0;
+lenis.on('scroll', e => {
+  target = e.limit>0 ? e.scroll/e.limit : 0;
+});
+
+// ====== 滑鼠／觸碰互動：移動 → 視差偏移、鳳凰朝你轉頭；觸碰／點擊 → 脈衝反應 ======
+const mouse = { x:0, y:0, tx:0, ty:0 };
+let pulse = 0;   // 觸碰脈衝（0~1，衰減）
+addEventListener('pointermove', e => {
+  mouse.tx = (e.clientX / innerWidth  - 0.5) * 2;   // -1 ~ 1
+  mouse.ty = (e.clientY / innerHeight - 0.5) * 2;
+  const now = performance.now();                     // 滑動／拖曳沿路灑出水波
+  if(now - lastRip > 70){ lastRip = now; spawnRipple(e.clientX, e.clientY, 0.55); }
+}, { passive:true });
+addEventListener('pointerdown', e => {
+  pulse = 1;                                         // 觸發放大脈動＋拍翅暴衝＋發光
+  burstReq = true;                                   // 觸發火花迸發
+  spawnRipple(e.clientX, e.clientY, 1.4);            // 觸發較強水波
+  mouse.tx = (e.clientX / innerWidth  - 0.5) * 2;    // 鳳凰朝觸碰點轉頭
+  mouse.ty = (e.clientY / innerHeight - 0.5) * 2;
+  const r = document.createElement('div');           // 點觸處擴散光環
+  r.className = 'ripple';
+  r.style.left = e.clientX + 'px'; r.style.top = e.clientY + 'px';
+  document.body.appendChild(r);
+  setTimeout(() => r.remove(), 700);
+}, { passive:true });
+
+const bar = document.getElementById('bar');
+const chapters = [...document.querySelectorAll('.chapter')];
+const io = new IntersectionObserver(es=>es.forEach(e=>{
+  if(e.isIntersecting) e.target.classList.add('in');
+}), {threshold:.4});
+chapters.forEach(c=>io.observe(c));
+
+// ====== 主迴圈 ======
+const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
+const prevPos = new THREE.Vector3(), heading = new THREE.Vector3(0,0,-1);
+const vel = new THREE.Vector3(), lookBird = new THREE.Vector3();
+const camTarget = new THREE.Vector3(), lookFwd = new THREE.Vector3();
+const threeClock = new THREE.Clock();
+let clock = 0;
+function animate(time){
+  requestAnimationFrame(animate);
+  lenis.raf(time);                         // 推動平滑捲動
+  const dt = threeClock.getDelta();
+  clock += 0.016;
+  if(mixer) mixer.update(dt);              // 真實模型的內建動畫（拍翅等）
+  prog += (target - prog)*0.06;            // 平滑跟隨捲動
+  bar.style.width = (prog*100).toFixed(1)+'%';
+
+  // 俯衝速度：捲動越急，待追距離越大 → FOV 拉伸 + 雲流加速（暴衝感）
+  const speed = Math.min(Math.abs(target - prog), 1);
+  const fovTarget = 55 + speed * 150 + pulse * 22;   // 俯衝拉伸 + 觸碰瞬間視野衝擊
+  camera.fov += (Math.min(fovTarget, 92) - camera.fov) * 0.08;
+  camera.updateProjectionMatrix();
+  const diveSpeed = CLOUD_SPEED + speed * 9;   // 雲跟著暴衝
+
+  // 滑鼠/觸碰平滑跟隨 + 觸碰脈衝衰減
+  mouse.x += (mouse.tx - mouse.x) * 0.05;
+  mouse.y += (mouse.ty - mouse.y) * 0.05;
+  pulse *= 0.93;
+
+  const t = Math.min(prog, 0.999);
+  curve.getPointAt(t, tmpA);
+  const baseZ = tmpA.z;                         // 相機跟拍用的「基準深度」（不含掠過暴衝）
+
+  // 有機氣流擺動（讓飛行像乘著氣流）
+  tmpA.x += Math.sin(clock*0.45)*1.1 + Math.sin(clock*1.13)*0.4;
+  tmpA.y += Math.sin(clock*0.70)*0.6 + Math.cos(clock*1.60)*0.3;
+  // 朝鏡頭俯衝掠過（z 暴增 → 衝向並掠過鏡頭後消失）
+  tmpA.z += flybyAmount(t);
+
+  // 以「實際速度方向」決定朝向 → 自動處理朝鏡頭俯衝、側飛、掠過、回返
+  vel.copy(tmpA).sub(prevPos);
+  if(vel.lengthSq() > 0.0004){ vel.normalize(); heading.lerp(vel, 0.12); heading.normalize(); }
+  prevPos.copy(tmpA);
+  phoenix.position.copy(tmpA);
+  lookBird.copy(tmpA).add(heading);
+  phoenix.lookAt(lookBird);
+
+  // 側傾（依水平航向）+ 翻滾 + 觸碰花式甩動
+  phoenix.rotateZ(-heading.x*0.5 + rollAngle(t) + pulse*Math.sin(clock*22)*0.6);
+  phoenix.rotateY(mouse.x * 0.18);             // 朝滑鼠/觸碰點轉頭
+  phoenix.rotateX(-mouse.y * 0.10);
+
+  // 觸碰反應：放大脈動 + 拍翅暴衝 + 發光增強
+  phoenix.scale.setScalar(1 + pulse*0.16);
+  if(mixer) mixer.timeScale = 1 + speed*6 + pulse*9;
+  bloom.strength = 0.4 + pulse*0.9;
+
+  // 水波：推進每個漣漪的年齡，過期則停用
+  waterPass.uniforms.uAspect.value = innerWidth / innerHeight;
+  for(let i=0;i<MAX_RIP;i++){
+    if(ripAge[i] >= 0){ ripAge[i] += dt; if(ripAge[i] > 2.6) ripAge[i] = -1; }
+  }
+
+  // 觸碰火花：在鳳凰位置迸發一圈彩色火花，整體淡出
+  if(burstReq){ burstAt(phoenix.position); burstReq = false; }
+  sparkTimer *= 0.94;
+  sparks.material.opacity = sparkTimer;
+  if(sparkTimer > 0.01){
+    const sp = spkGeo.attributes.position.array;
+    for(let i=0;i<SPK;i++){
+      sp[i*3]   += spkVel[i*3];
+      sp[i*3+1] += spkVel[i*3+1] + 0.004;     // 微微上飄
+      sp[i*3+2] += spkVel[i*3+2];
+      spkVel[i*3]*=0.95; spkVel[i*3+1]*=0.95; spkVel[i*3+2]*=0.95;   // 阻尼
+    }
+    spkGeo.attributes.position.needsUpdate = true;
+  }
+
+  // 程式幾何的拍翅/尾羽動畫（用真實模型時改由 mixer 負責）
+  if(!usingModel){
+    const flap = Math.sin(clock*5)*0.6 + 0.1;
+    wingL.rotation.z =  flap; wingR.rotation.z = -flap;
+    tail.forEach(f=>{
+      f.position.x = f.userData.base.x + Math.sin(clock*3 + f.userData.phase)*0.4;
+      f.position.y = f.userData.base.y + Math.cos(clock*2.5 + f.userData.phase)*0.3;
+    });
+  }
+
+  // 相機：沿旅程基準深度前進、看向「前方」（不再緊跟鳳凰），鳳凰因而能飛出畫面、掠過、再回來
+  camTarget.set(
+    mouse.x * 3.2 + Math.sin(clock*0.30)*0.35,
+    2.0 - mouse.y * 1.9 + Math.sin(clock*0.50)*0.2,
+    baseZ + 9
+  );
+  if(pulse > 0.01){                              // 觸碰瞬間鏡頭微震
+    camTarget.x += (Math.random()-.5)*pulse*1.1;
+    camTarget.y += (Math.random()-.5)*pulse*1.1;
+  }
+  camera.position.lerp(camTarget, 0.05);
+  lookFwd.set(mouse.x * 2.4, 1.3, baseZ - 14);   // 望向旅程前方
+  camera.lookAt(lookFwd);
+
+  // 天空穹頂跟著鏡頭 + 依捲動進度在粉彩色階間交叉淡化（薰衣草→蜜桃→薄荷→天藍）
+  skyDome.position.copy(camera.position);
+  {
+    const seg = t * (SKY_STOPS.length - 1);
+    const i = Math.min(Math.floor(seg), SKY_STOPS.length - 2);
+    setSkyVec(skyUni.aTop, SKY_STOPS[i].top);     setSkyVec(skyUni.aBot, SKY_STOPS[i].bot);
+    setSkyVec(skyUni.bTop, SKY_STOPS[i+1].top);   setSkyVec(skyUni.bBot, SKY_STOPS[i+1].bot);
+    skyUni.mixf.value = seg - i;
+  }
+
+  // 雲層持續朝鏡頭流動；越過鏡頭就回收到前方，形成無盡前進的穿越感
+  for(const s of clouds){
+    s.position.z += diveSpeed;
+    if(s.position.z > camera.position.z + 14){
+      s.position.z = camera.position.z - (70 + Math.random()*80);
+      s.position.x = phoenix.position.x + (Math.random()-.5)*55;
+      s.position.y = phoenix.position.y + (Math.random()-.5)*30;
+      s.material.opacity = 0.05 + Math.random()*0.12;
+    }
+  }
+  key.position.copy(tmpA).add(new THREE.Vector3(0,3,6));     // 主光在鳳凰前上方
+  warm.position.copy(tmpA).add(new THREE.Vector3( 4,-2, 3)); // 暖色高光（隨牠移動）
+  cool.position.copy(tmpA).add(new THREE.Vector3(-4, 3,-2)); // 冷色高光（隨牠移動）
+
+  composer.render();                       // 透過 Bloom 後處理輸出
+}
+requestAnimationFrame(animate);
+
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  bloom.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
