@@ -47,6 +47,19 @@
     border:2px solid rgba(122,95,166,.75); border-radius:50%; pointer-events:none;
     animation:ripple .7s cubic-bezier(.2,.7,.3,1) forwards; }
   @keyframes ripple{ from{ transform:scale(.3); opacity:.9; } to{ transform:scale(12); opacity:0; } }
+  /* ── Lusion 風框架感：自訂游標 + 四角「+」+ 圓角邊框 ── */
+  html,body{ cursor:none; }
+  #frame{ position:fixed; inset:14px; border:1px solid rgba(60,40,90,.20); border-radius:22px; z-index:6; pointer-events:none; }
+  .corner{ position:fixed; z-index:6; pointer-events:none; font:300 17px/1 ui-sans-serif,system-ui,sans-serif; color:rgba(60,40,90,.45); }
+  .corner.tl{ left:26px; top:24px } .corner.tr{ right:26px; top:24px }
+  .corner.bl{ left:26px; bottom:24px } .corner.br{ right:26px; bottom:24px }
+  #cursor-dot{ position:fixed; left:0; top:0; z-index:9; width:7px; height:7px; margin:-3.5px 0 0 -3.5px;
+    border-radius:50%; background:#3c285a; pointer-events:none; }
+  #cursor-ring{ position:fixed; left:0; top:0; z-index:9; width:34px; height:34px; margin:-17px 0 0 -17px;
+    border:1.5px solid rgba(60,40,90,.40); border-radius:50%; pointer-events:none;
+    transition:width .22s ease, height .22s ease, margin .22s ease, border-color .22s ease; }
+  #cursor-ring.down{ width:54px; height:54px; margin:-27px 0 0 -27px; border-color:rgba(60,40,90,.7); }
+  @media (pointer:coarse){ html,body{cursor:auto} #cursor-dot,#cursor-ring{display:none} }  /* 觸控裝置用原生 */
   /* Lenis 建議樣式 */
   html.lenis,html.lenis body{ height:auto; }
   .lenis.lenis-smooth{ scroll-behavior:auto !important; }
@@ -56,6 +69,10 @@
 <body>
   <div id="bar"></div>
   <canvas id="scene"></canvas>
+  <div id="frame"></div>
+  <span class="corner tl">+</span><span class="corner tr">+</span>
+  <span class="corner bl">+</span><span class="corner br">+</span>
+  <div id="cursor-ring"></div><div id="cursor-dot"></div>
   <div id="hint">SCROLL ↓ 驅動鳳凰</div>
   <!-- CC 署名：模型必須標註作者 -->
   <a id="credit" href="https://sketchfab.com/3d-models/phoenix-bird-844ba0cf144a413ea92c779f18912042" target="_blank" rel="noopener">
@@ -256,7 +273,11 @@ function loadModel(list){
     holder.scale.setScalar(s);
     holder.rotation.y = MODEL_ROT_Y;
     if(GLASSIFY) model.traverse(o => { if(o.isMesh) o.material = fireMat; });  // 換成玻璃材質
-    else model.traverse(o => { if(o.isMesh && o.material && 'envMapIntensity' in o.material){ o.material.envMapIntensity = 0.45; }}); // 降低環境光照亮，讓鳳凰自身虹彩主導
+    else model.traverse(o => { if(o.isMesh && o.material && 'envMapIntensity' in o.material){
+      o.material.envMapIntensity = 0.95;                                   // 材質升級：更強攝影棚反射光澤
+      if('roughness' in o.material) o.material.roughness = Math.max(0, o.material.roughness * 0.72);  // 略降粗糙度 → 更亮的高光
+      o.material.needsUpdate = true;
+    }});
     phoenix.add(holder);
     proc.visible = false;
     usingModel = true;
@@ -364,7 +385,7 @@ function flybyAmount(t){
   let a = 0;
   for(const p of FLYBY_POINTS){
     const d = (t - (p - 0.06)) / 0.12;                 // 進入掠過區 0→1
-    if(d > 0 && d < 1) a += Math.sin(d*Math.PI) * 26;  // 朝鏡頭暴衝 +26 後退回（會掠過鏡頭）
+    if(d > 0 && d < 1) a += Math.sin(d*Math.PI) * 13;  // 朝鏡頭暴衝後退回（幅度收斂，不會整隻飛出畫面）
   }
   return a;
 }
@@ -432,6 +453,31 @@ const bloom = new UnrealBloomPass(
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
+// ====== 電影級後製：色差 + 暗角 + 底片顆粒（最後一道，作用在最終影像）======
+const postFX = new ShaderPass({
+  uniforms: { tDiffuse:{value:null}, uTime:{value:0}, uAmount:{value:1} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uAmount;
+    varying vec2 vUv;
+    float rand(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+    void main(){
+      vec2 c = vUv - 0.5;
+      float r2 = dot(c, c);
+      vec2 off = c * r2 * 0.018 * uAmount;          // 邊緣漸強的色差
+      float R = texture2D(tDiffuse, vUv - off).r;
+      float G = texture2D(tDiffuse, vUv).g;
+      float B = texture2D(tDiffuse, vUv + off).b;
+      vec3 col = vec3(R, G, B);
+      col *= 1.0 - r2 * 0.55 * uAmount;             // 暗角
+      float g = (rand(vUv + fract(uTime)) - 0.5) * 0.04 * uAmount;   // 底片顆粒
+      col += g;
+      gl_FragColor = vec4(col, 1.0);
+    }`
+});
+postFX.material.toneMapped = false;
+composer.addPass(postFX);
+
 // ====== Lenis 平滑捲動 ======
 const lenis = new Lenis({ smoothWheel:true, lerp:0.08 });
 window.__L = lenis;   // 除錯用：可在 console 以 __L.scrollTo(px,{immediate:true}) 精準跳位
@@ -441,11 +487,16 @@ lenis.on('scroll', e => {
 });
 
 // ====== 滑鼠／觸碰互動：移動 → 視差偏移、鳳凰朝你轉頭；觸碰／點擊 → 脈衝反應 ======
-const mouse = { x:0, y:0, tx:0, ty:0 };
+const mouse = { x:0, y:0, tx:0, ty:0, cx:innerWidth/2, cy:innerHeight/2 };
 let pulse = 0;   // 觸碰脈衝（0~1，衰減）
+const cDot = document.getElementById('cursor-dot');
+const cRing = document.getElementById('cursor-ring');
+let ringX = innerWidth/2, ringY = innerHeight/2;
 addEventListener('pointermove', e => {
   mouse.tx = (e.clientX / innerWidth  - 0.5) * 2;   // -1 ~ 1
   mouse.ty = (e.clientY / innerHeight - 0.5) * 2;
+  mouse.cx = e.clientX; mouse.cy = e.clientY;        // 自訂游標座標
+  if(cDot) cDot.style.transform = `translate(${e.clientX}px,${e.clientY}px)`;
   const now = performance.now();                     // 滑動／拖曳沿路灑出水波
   if(now - lastRip > 70){ lastRip = now; spawnRipple(e.clientX, e.clientY, 0.55); }
 }, { passive:true });
@@ -455,6 +506,8 @@ addEventListener('pointerdown', e => {
   spawnRipple(e.clientX, e.clientY, 1.4);            // 觸發較強水波
   mouse.tx = (e.clientX / innerWidth  - 0.5) * 2;    // 鳳凰朝觸碰點轉頭
   mouse.ty = (e.clientY / innerHeight - 0.5) * 2;
+  mouse.cx = e.clientX; mouse.cy = e.clientY;
+  if(cRing){ cRing.classList.add('down'); setTimeout(()=>cRing.classList.remove('down'), 260); }
   const r = document.createElement('div');           // 點觸處擴散光環
   r.className = 'ripple';
   r.style.left = e.clientX + 'px'; r.style.top = e.clientY + 'px';
@@ -489,7 +542,9 @@ function animate(time){
 
   // 俯衝速度：捲動越急，待追距離越大 → FOV 拉伸 + 雲流加速（暴衝感）
   const speed = Math.min(Math.abs(target - prog), 1);
-  const fovTarget = Math.min(55 + speed * 150 + pulse * 22, 92);   // 俯衝拉伸 + 觸碰瞬間視野衝擊
+  const aspect = innerWidth / innerHeight;
+  const baseFov = Math.min(55 + Math.max(0, 1/Math.min(aspect,1) - 1) * 22, 82);   // 直式畫面自動加寬視野(RWD)
+  const fovTarget = Math.min(baseFov + speed * 150 + pulse * 22, 95);   // 俯衝拉伸 + 觸碰瞬間視野衝擊
   camera.fov = damp(camera.fov, fovTarget, 5, dt);
   camera.updateProjectionMatrix();
   const diveSpeed = (CLOUD_SPEED + speed * 9) * dt * 60;   // 雲流：每秒一致
@@ -498,6 +553,9 @@ function animate(time){
   mouse.x = damp(mouse.x, mouse.tx, 3.5, dt);
   mouse.y = damp(mouse.y, mouse.ty, 3.5, dt);
   pulse *= Math.exp(-4.5*dt);
+  ringX = damp(ringX, mouse.cx, 14, dt);            // 自訂游標拖尾環
+  ringY = damp(ringY, mouse.cy, 14, dt);
+  if(cRing) cRing.style.transform = `translate(${ringX}px,${ringY}px)`;
 
   const t = Math.min(prog, 0.999);
   curve.getPointAt(t, tmpA);
@@ -528,7 +586,8 @@ function animate(time){
   if(mixer) mixer.timeScale = flapTS;
   bloom.strength = 0.4 + pulse*0.9;
 
-  // 水波：推進每個漣漪的年齡，過期則停用
+  // 後製顆粒時間 + 水波長寬比
+  postFX.uniforms.uTime.value = clock;
   waterPass.uniforms.uAspect.value = innerWidth / innerHeight;
   for(let i=0;i<MAX_RIP;i++){
     if(ripAge[i] >= 0){ ripAge[i] += dt; if(ripAge[i] > 2.6) ripAge[i] = -1; }
@@ -559,10 +618,10 @@ function animate(time){
     });
   }
 
-  // 相機：沿旅程基準深度前進、看向「前方」（不再緊跟鳳凰），鳳凰因而能飛出畫面、掠過、再回來
+  // 相機：部分跟隨鳳凰（保持在鏡頭內）+ 視差 + 前進感
   camTarget.set(
-    mouse.x * 3.2 + Math.sin(clock*0.30)*0.35,
-    2.0 - mouse.y * 1.9 + Math.sin(clock*0.50)*0.2,
+    tmpA.x * 0.5 + mouse.x * 2.6 + Math.sin(clock*0.30)*0.3,
+    2.0 + tmpA.y * 0.3 - mouse.y * 1.7 + Math.sin(clock*0.50)*0.2,
     baseZ + 9
   );
   if(pulse > 0.01){                              // 觸碰瞬間鏡頭微震
@@ -570,7 +629,7 @@ function animate(time){
     camTarget.y += (Math.random()-.5)*pulse*1.1;
   }
   camera.position.lerp(camTarget, kf(4.5));
-  lookFwd.set(mouse.x * 2.4, 1.3, baseZ - 14);   // 望向旅程前方
+  lookFwd.set(tmpA.x * 0.6 + mouse.x * 2.0, 1.0 + tmpA.y * 0.4, baseZ - 12);   // 視線兼顧鳳凰與前方
   camera.lookAt(lookFwd);
 
   // 天空穹頂跟著鏡頭 + 依捲動進度在粉彩色階間交叉淡化（薰衣草→蜜桃→薄荷→天藍）
